@@ -1,0 +1,14 @@
+body {
+	margin-right: 5%;
+	margin-left: 5%;
+	font-family: Arial, sans-serif;
+}
+h1 {
+	color: rgb(15, 15, 150);
+}
+
+#map {
+	margin-top: 10px;
+	width: 1000px;
+	height: 700px;
+}

@@ -1,0 +1,285 @@
+*******************************************************************************
+*
+*       Program ROUTE_PLANNER
+*       
+*       Copyright (C) 2017
+*
+*
+*******************************************************************************
+*
+*  Author: George Christian
+*  Created on: Aug 19, 2017 10:20:30 AM
+*  Description: Assigns an order to jobs on the basis of their location and time
+* 				since the job was filed.
+*
+*
+*****************************************************************************
+
+* Graph information
+NODES = ''
+JOBS_LIST = ''
+
+PRINT "Starting priority calculation program"
+
+* Open and read JOBS file
+OPEN "JOBS" TO JOBS ELSE 
+	PRINT "ERROR: Unable to open JOBS database"
+	STOP
+END
+
+* Have all the selected records been processed?
+DONE = 0
+NUM_NODES = 0
+NUM_JOBS = 0
+NUM_OUR_LOCATIONS = 0
+ID = ""
+
+CALL GET_OUR_LOCATIONS(NODES, NUM_NODES, NUM_OUR_LOCATIONS)
+
+* Create a select list with all the active jobs
+SELECT JOBS
+* Loop through the jobs, adding their locations to the nodes list
+PRINT "Reading job and location data"
+LOOP
+	READNEXT ID ELSE DONE = 1
+UNTIL DONE DO
+	NUM_NODES += 1
+	* Iterate over the list, getting the location of each
+	READU JOB FROM JOBS,ID THEN
+		NUM_JOBS += 1
+		LOCATION = JOB<1>
+		* Store the job
+		FOR ENTRY = 1 TO 9
+			JOBS_LIST<NUM_JOBS,ENTRY> = JOB<ENTRY>
+		NEXT ENTRY
+		JOBS_LIST<NUM_JOBS,10> = ID
+		
+		CALL ADD_NODE(LOCATION, NUM_NODES, NODES)
+	END
+REPEAT
+CLEARSELECT
+CLOSE JOBS
+
+PRINT "Plotting the minimum spanning tree for the job locations"
+CALL PLOT_MST(NODES, NUM_NODES, NUM_OUR_LOCATIONS)
+PRINT "Calculating priorities"
+CALL CALC_PRIORITIES(NODES, JOBS_LIST, NUM_NODES, NUM_OUR_LOCATIONS)
+PRINT "SUCCESSFULLY COMPLETED"
+RETURN
+
+* Find and store all our home locations
+SUBROUTINE GET_OUR_LOCATIONS(NODES, MAX_INDEX, NUM_OUR_LOCATIONS)
+	OPEN "LOCATIONS" TO LOCATIONS ELSE
+		PRINT "ERROR: Unable to open LOCATIONS database"
+		STOP
+	END
+
+	* Find all our locations and add them to the graph
+	SELECT LOCATIONS
+	* Have all the selected records been processed?
+	DONE = 0
+	ID = ""
+	LOOP
+		READNEXT ID ELSE DONE = 1
+	UNTIL DONE DO
+		READU LOC FROM LOCATIONS,ID THEN
+			* If this is our location then add it to the end of the list
+			IF LOC<4> = "y" THEN
+				MAX_INDEX += 1
+				NUM_OUR_LOCATIONS += 1
+				* Place the location info into the 2D nodes array
+				FOR I = 1 TO 4
+					NODES<MAX_INDEX,I> = LOC<I>
+				NEXT I
+				NODES<MAX_INDEX,5> = ID
+			END
+		END
+	REPEAT
+	CLEARSELECT
+	CLOSE LOCATIONS
+	RETURN
+
+* Plot a Minimum Spanning Tree (MST) with the provided nodes
+SUBROUTINE PLOT_MST(NODES, MAX_INDEX, NUM_OUR_LOCS)
+	IF MAX_INDEX < 2 THEN
+		PRINT "ERROR: Not enough jobs"
+		STOP
+	END
+	
+	* Connect all the nodes into an MST using Prim's algorithm
+	* Constants to be used by the algorithm
+	KEY = 6
+	PARENT = 7
+	DELETED = 8
+	FOR ENTRY = 1 TO MAX_INDEX
+		* Key
+		NODES<ENTRY,KEY> = 1000000
+		* Parent
+		NODES<ENTRY,PARENT> = ''
+		* Deleted flag
+		NODES<ENTRY,DELETED> = 0
+	NEXT ENTRY
+	FOR ENTRY = 1 TO NUM_OUR_LOCS
+		NODES<ENTRY,KEY> = 0
+	NEXT ENTRY
+
+	DONE = 0
+	LOOP
+		DONE = 1
+		FOR ENTRY = 1 TO MAX_INDEX
+			IF NODES<ENTRY,DELETED> <> 1 THEN
+				DONE = 0
+			END
+		NEXT ENTRY
+	UNTIL DONE = 1 DO
+		* Extract the node with the smallest key (distance)
+		MIN_KEY = 1000000
+		MIN_KEY_NODE = 0
+		FOR ENTRY = 1 TO MAX_INDEX
+			IF NODES<ENTRY,KEY> < MIN_KEY AND NODES<ENTRY,DELETED> <> 1 THEN
+				MIN_KEY_NODE = ENTRY
+				MIN_KEY = NODES<ENTRY,KEY>
+			END
+		NEXT ENTRY
+		NODES<MIN_KEY_NODE,DELETED> = 1
+		
+		* Conduct a nearest neighbour search
+		MIN_DIST = 1000000
+		CUR_NEAREST = 0
+		FOR ENTRY = 1 TO MAX_INDEX
+			IF NODES<ENTRY,DELETED> <> 1 THEN
+				* Calculate the distance between the two nodes
+				CALL CALC_DIST(NODES<ENTRY,1>, NODES<MIN_KEY_NODE,1>, NODES<ENTRY,2>, NODES<MIN_KEY_NODE,2>, DIST)
+				
+				* Update the key and parent if necessary
+				IF DIST < NODES<ENTRY,KEY> THEN
+					NODES<ENTRY,KEY> = DIST
+					NODES<ENTRY,PARENT> = MIN_KEY_NODE
+				END
+			END
+		NEXT ENTRY
+	REPEAT
+	RETURN
+	
+* Calculates the priority of each node, provided the MST has been calculated
+SUBROUTINE CALC_PRIORITIES(NODES, JOBS, MAX_INDEX, NUM_OUR_LOCS)
+	PARENT = 7
+	PRIORITY = ''
+	NUM_JOBS = MAX_INDEX - NUM_OUR_LOCS
+	OPEN "JOBS" TO JOBS_FILE ELSE
+		PRINT "ERROR: Unable to open JOBS database"
+		STOP
+	END
+	
+	* Set all priorities to NULL
+	FOR ENTRY = 1 TO NUM_JOBS
+		JOBS<ENTRY,4> = ''
+	NEXT ENTRY
+	
+	* Initialise priority counters
+	FOR ENTRY = 1 TO NUM_OUR_LOCS
+		PRIORITY<ENTRY> = 1
+	NEXT ENTRY
+	
+	DONE = 0
+	LOOP
+		DONE = 1
+		FOR ENTRY = 1 TO NUM_JOBS
+			IF JOBS<ENTRY,4> = '' THEN
+				DONE = 0
+			END
+		NEXT ENTRY
+	UNTIL DONE = 1
+		* Select the oldest job and use it as the destination
+		* for the route planner.
+		MIN_DATE = 1000000
+		NEXT_JOB = 0
+		FOR I = 1 TO NUM_JOBS
+			* If there is a job scheduled for today then it takes priority
+			IF JOBS<I,9> >= DATE() AND JOBS<I,4> = '' THEN
+				NEXT_JOB = I
+				MIN_DATE = 0
+			END
+			IF JOBS<I,2> < MIN_DATE AND JOBS<I,4> = '' THEN
+				MIN_DATE = JOBS<I,2>
+				NEXT_JOB = I
+			END
+		NEXT I
+	
+		* Trace back the path through the MST to the nearest home location.
+		NEXT_NODE = NUM_OUR_LOCS + NEXT_JOB
+		PATH = ''
+		CONT_FROM = ''
+		NUM_ON_PATH = 1
+		PATH<1> = NEXT_NODE
+		OUR_LOC = PATH<1>
+		LOOP
+			IND = PATH<NUM_ON_PATH>
+			* The last node reached will be our nearest location
+			OUR_LOC = NODES<IND,PARENT>
+		UNTIL NODES<NODES<IND,PARENT>,4> = "y"
+			NUM_ON_PATH += 1
+			PATH<NUM_ON_PATH> = NODES<IND,PARENT>
+			* If we reach another route then store the branch point
+			IF JOBS<PATH<NUM_ON_PATH> - NUM_OUR_LOCS, 4> <> '' AND CONT_FROM = '' THEN
+				CONT_FROM = NODES<PATH<NUM_ON_PATH>,5>
+			END
+		REPEAT
+		IF CONT_FROM = '' THEN
+			CONT_FROM = NODES<OUR_LOC, 5>
+		END
+	
+		* Write the updated records
+		VISIT_ORDER = 1
+		FOR I = 1 TO NUM_ON_PATH
+			* The last job on the path is the first to visit
+			ENTRY = NUM_ON_PATH - I + 1
+			JOB_INDEX = PATH<ENTRY> - NUM_OUR_LOCS
+			IF JOBS<JOB_INDEX,4> = '' THEN
+				JOBS<JOB_INDEX,4> = PRIORITY<OUR_LOC>
+				READU JOB FROM JOBS_FILE,JOBS<JOB_INDEX,10> THEN
+					* Assign newly calculated values
+					JOB<4> = PRIORITY<OUR_LOC>
+					JOB<5> = DATE()
+					JOB<6> = NODES<OUR_LOC,5>
+					JOB<7> = VISIT_ORDER
+					JOB<8> = CONT_FROM
+					WRITEU JOB ON JOBS_FILE,JOBS<JOB_INDEX,10>
+				END
+				VISIT_ORDER += 1
+				CONT_FROM = ''
+			END
+		NEXT I
+		
+		PRIORITY<OUR_LOC> += 1
+	REPEAT
+	
+	CLOSE JOBS_FILE
+	RETURN
+
+* Add a node to the location graph
+SUBROUTINE ADD_NODE(LOCATION, MAX_INDEX, NODES)
+	* Retrieve the location from the file
+	OPEN "LOCATIONS" TO LOCATIONS ELSE
+		PRINT "ERROR: Unable to open LOCATIONS database"
+		STOP
+	END
+	
+	READU LOC FROM LOCATIONS,LOCATION THEN
+		* Place the location info into the 2D nodes array
+		FOR I = 1 TO 4
+			NODES<MAX_INDEX,I> = LOC<I>
+		NEXT I
+		NODES<MAX_INDEX,5> = LOCATION
+	END
+	
+	CLOSE LOCATIONS
+	RETURN
+
+* Calculate the straight-line distance between two locations	
+SUBROUTINE CALC_DIST(LAT1, LAT2, LONG1, LONG2, DIST)
+	VAL1 = (LAT1 - LAT2) * (LAT1 - LAT2)
+	VAL2 = (LONG1 - LONG2) * (LONG1 - LONG2)
+	DIST = SQRT(VAL1 + VAL2)
+	RETURN
+	

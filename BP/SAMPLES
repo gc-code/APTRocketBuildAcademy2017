@@ -1,0 +1,55 @@
+*******************************************************************************
+*
+*       Program SAMPLES
+*       
+*       Copyright (C) 2017
+*
+*
+*******************************************************************************
+*
+*  Author: George Christian
+*  Created on: Aug 19, 2017 11:26:57 AM
+*  Description: Small sample code snippets
+*
+*
+*****************************************************************************
+
+GOSUB GET_RECORDS
+RETURN
+
+* Dimensioned array and loop
+DIM_ARRAY:
+	DIM ARRAY(4)
+	ARRAY(1) = 'A'
+	ARRAY(2) = 'B'
+	ARRAY(3) = 'C'
+	ARRAY(4) = 'D'
+	FOR ENTRY = 1 TO 4
+		PRINT ARRAY(ENTRY)
+	NEXT ENTRY
+	RETURN
+	
+* Basic arithmetic
+BASIC_ARITH:
+	NUMBER = 7 * 2
+	PRINT NUMBER
+	RETURN
+	
+* Get a record from the vehicles database and print its information
+GET_RECORDS:
+	OPEN "VEHICLES" TO VEHICLES ELSE
+		PRINT "Failed to open file"
+		RETURN
+	END
+	
+	REG = "LL66GHY"
+	READU VEHICLE FROM VEHICLES,REG THEN
+		PRINT REG
+		PRINT VEHICLE<1>
+		PRINT VEHICLE<2>
+		PRINT VEHICLE<3>
+		PRINT VEHICLE<4>
+		PRINT VEHICLE<5>
+	END
+	CLOSE VEHICLES
+	RETURN
